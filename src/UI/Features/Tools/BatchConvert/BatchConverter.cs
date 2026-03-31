@@ -1071,7 +1071,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
                 }
                 else
                 {
-                    var match = matcher.GetCompareMatch(splitterItem, out _, letters, index, db);
+                    var match = matcher.GetCompareMatch(splitterItem, out _, letters, index, db, Se.Settings.Ocr.BinaryOcrMaxErrorPercent);
                     if (match == null)
                     {
                         matches.Add(new BinaryOcrMatcher.CompareMatch("*", false, 0, null));
@@ -1955,7 +1955,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
         var removeTextForHiLib = new RemoveTextForHI(settings);
         removeTextForHiLib.Warnings = [];
-        removeTextForHiLib.ReloadInterjection(language);
+        removeTextForHiLib.ReloadInterjection(language, new System.Collections.Generic.List<string>(), new System.Collections.Generic.List<string>());
 
         for (var index = 0; index < subtitle.Paragraphs.Count; index++)
         {
