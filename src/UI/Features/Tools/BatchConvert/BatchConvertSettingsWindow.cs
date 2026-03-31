@@ -74,17 +74,101 @@ public class BatchConvertSettingsWindow : Window
 
         var labelOcrEngine = UiUtil.MakeLabel(Se.Language.Ocr.OcrEngine);
         var comboBoxOcrEngine = UiUtil.MakeComboBox(vm.OcrEngines, vm, nameof(vm.SelectedOcrEngine));
-        var labelOcLanguage = UiUtil.MakeLabel(Se.Language.General.Language).WithBindVisible(vm, nameof(vm.IsOcrLanguageVisible)).WithMarginLeft(10);
+
+        var labelOcrLanguage = UiUtil.MakeLabel(Se.Language.General.Language)
+            .WithBindVisible(vm, nameof(vm.IsOcrLanguageVisible))
+            .WithMarginLeft(10);
+
         var comboBoxTesseractLanguages = UiUtil.MakeComboBox(vm.TesseractDictionaryItems, vm, nameof(vm.SelectedTesseractDictionaryItem))
             .WithBindVisible(nameof(vm.IsTesseractOcrVisible));
+
         var comboBoxPaddleLanguages = UiUtil.MakeComboBox(vm.PaddleOcrLanguages, vm, nameof(vm.SelectedPaddleOcrLanguage))
             .WithBindVisible(nameof(vm.IsPaddleOCrVisible));
+
+        var comboBoxOllamaLanguages = UiUtil.MakeComboBox(vm.OllamaLanguages, vm, nameof(vm.SelectedOllamaLanguage))
+            .WithBindVisible(nameof(vm.IsOllamaVisible));
+        var labelOllamaModel = UiUtil.MakeLabel("Model")
+            .WithBindVisible(vm, nameof(vm.IsOllamaVisible))
+            .WithMarginLeft(10);
+        var textBoxOllamaModel = new TextBox
+        {
+            Width = 160,
+            VerticalAlignment = VerticalAlignment.Center,
+            [!TextBox.TextProperty] = new Binding(nameof(vm.OllamaModel)) { Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged },
+            [!TextBox.IsVisibleProperty] = new Binding(nameof(vm.IsOllamaVisible)),
+        };
+        var labelOllamaUrl = UiUtil.MakeLabel("URL")
+            .WithBindVisible(vm, nameof(vm.IsOllamaVisible))
+            .WithMarginLeft(6);
+        var textBoxOllamaUrl = new TextBox
+        {
+            Width = 220,
+            VerticalAlignment = VerticalAlignment.Center,
+            [!TextBox.TextProperty] = new Binding(nameof(vm.OllamaUrl)) { Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged },
+            [!TextBox.IsVisibleProperty] = new Binding(nameof(vm.IsOllamaVisible)),
+        };
+
+        var comboBoxGoogleVisionLanguages = UiUtil.MakeComboBox(vm.GoogleVisionLanguages, vm, nameof(vm.SelectedGoogleVisionLanguage))
+            .WithBindVisible(nameof(vm.IsGoogleVisionVisible));
+        var labelGoogleVisionApiKey = UiUtil.MakeLabel("API key")
+            .WithBindVisible(vm, nameof(vm.IsGoogleVisionVisible))
+            .WithMarginLeft(10);
+        var textBoxGoogleVisionApiKey = new TextBox
+        {
+            Width = 260,
+            VerticalAlignment = VerticalAlignment.Center,
+            [!TextBox.TextProperty] = new Binding(nameof(vm.GoogleVisionApiKey)) { Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged },
+            [!TextBox.IsVisibleProperty] = new Binding(nameof(vm.IsGoogleVisionVisible)),
+        };
+
+        var labelMistralApiKey = UiUtil.MakeLabel("API key")
+            .WithBindVisible(vm, nameof(vm.IsMistralVisible))
+            .WithMarginLeft(10);
+        var textBoxMistralApiKey = new TextBox
+        {
+            Width = 260,
+            VerticalAlignment = VerticalAlignment.Center,
+            [!TextBox.TextProperty] = new Binding(nameof(vm.MistralApiKey)) { Mode = BindingMode.TwoWay, UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged },
+            [!TextBox.IsVisibleProperty] = new Binding(nameof(vm.IsMistralVisible)),
+        };
+
+        var comboBoxGoogleLensLanguages = UiUtil.MakeComboBox(vm.GoogleLensLanguages, vm, nameof(vm.SelectedGoogleLensLanguage))
+            .WithBindVisible(nameof(vm.IsGoogleLensVisible));
+
+        var labelImageCompareDb = UiUtil.MakeLabel("Database")
+            .WithBindVisible(vm, nameof(vm.IsBinaryImageCompareVisible))
+            .WithMarginLeft(10);
+        var comboBoxImageCompareDatabases = UiUtil.MakeComboBox(vm.ImageCompareDatabases, vm, nameof(vm.SelectedImageCompareDatabase))
+            .WithBindVisible(nameof(vm.IsBinaryImageCompareVisible));
+
         var panelOcrEngine = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Margin = new Avalonia.Thickness(0, 30, 0, 0),
-            Children = { labelOcrEngine, comboBoxOcrEngine, labelOcLanguage, comboBoxTesseractLanguages, comboBoxPaddleLanguages }
+            Spacing = 4,
+            Children =
+            {
+                labelOcrEngine,
+                comboBoxOcrEngine,
+                labelOcrLanguage,
+                comboBoxTesseractLanguages,
+                comboBoxPaddleLanguages,
+                comboBoxOllamaLanguages,
+                comboBoxGoogleVisionLanguages,
+                comboBoxGoogleLensLanguages,
+                labelOllamaModel,
+                textBoxOllamaModel,
+                labelOllamaUrl,
+                textBoxOllamaUrl,
+                labelGoogleVisionApiKey,
+                textBoxGoogleVisionApiKey,
+                labelMistralApiKey,
+                textBoxMistralApiKey,
+                labelImageCompareDb,
+                comboBoxImageCompareDatabases,
+            }
         };
+
         comboBoxOcrEngine.SelectionChanged += (s, e) => vm.OnOcrEngineChanged();
 
         var labelLanguagePostFix = UiUtil.MakeLabel(Se.Language.General.LanguagePostFix);
@@ -132,7 +216,6 @@ public class BatchConvertSettingsWindow : Window
         grid.Add(panelOcrEngine, 5, 0);
         grid.Add(panelLanguagePostFix, 6, 0);
         grid.Add(panelButtons, 7, 0);
-
 
         Content = grid;
 
