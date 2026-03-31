@@ -1,4 +1,4 @@
-﻿using Avalonia.Skia;
+using Avalonia.Skia;
 using Nikse.SubtitleEdit.Core.BluRaySup;
 using Nikse.SubtitleEdit.Core.Common;
 using Nikse.SubtitleEdit.Core.ContainerFormats.Matroska;
@@ -21,6 +21,7 @@ using Nikse.SubtitleEdit.Features.Tools.SplitBreakLongLines;
 using Nikse.SubtitleEdit.Logic;
 using Nikse.SubtitleEdit.Logic.Config;
 using Nikse.SubtitleEdit.Logic.Ocr;
+using Nikse.SubtitleEdit.Logic.Ocr.GoogleLens;
 using SkiaSharp;
 using System;
 using System.Collections.Generic;
@@ -109,8 +110,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             imageSubtitle = new OcrSubtitleVobSub(vobSubMergedPackList, palette);
             //TODO: multi track
         }
-        else if ((item.FileName.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase) || item.FileName.EndsWith(".mks", StringComparison.OrdinalIgnoreCase)) &&
-                 item.Format.StartsWith("Matroska", StringComparison.Ordinal))
+        else if ((item.FileName.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase) || item.FileName.EndsWith(".mks", StringComparison.OrdinalIgnoreCase)) && item.Format.StartsWith("Matroska", StringComparison.Ordinal))
         {
             using (var matroska = new MatroskaFile(item.FileName))
             {
@@ -158,8 +158,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
                                 break;
                             }
                         }
-                        else if (track.CodecId.Equals("S_TEXT/UTF8", StringComparison.OrdinalIgnoreCase) ||
-                                 track.CodecId.Equals("S_TEXT/SSA", StringComparison.OrdinalIgnoreCase) || track.CodecId.Equals("S_TEXT/ASS", StringComparison.OrdinalIgnoreCase))
+                        else if (track.CodecId.Equals("S_TEXT/UTF8", StringComparison.OrdinalIgnoreCase) || track.CodecId.Equals("S_TEXT/SSA", StringComparison.OrdinalIgnoreCase) || track.CodecId.Equals("S_TEXT/ASS", StringComparison.OrdinalIgnoreCase))
                         {
                             if (trackId == track.TrackNumber.ToString(CultureInfo.InvariantCulture))
                             {
@@ -208,7 +207,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
                   item.FileName.EndsWith(".mts", StringComparison.OrdinalIgnoreCase) ||
                   item.FileName.EndsWith(".mpg", StringComparison.OrdinalIgnoreCase) ||
                   item.FileName.EndsWith(".mpeg", StringComparison.OrdinalIgnoreCase)) &&
-                 item.Format!.StartsWith("Transport Stream", StringComparison.Ordinal))
+                  item.Format!.StartsWith("Transport Stream", StringComparison.Ordinal))
         {
             if (item.ImageSubtitle != null)
             {
@@ -271,16 +270,52 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         if (imageSubtitle != null && !_config.IsTargetFormatImageBased)
         {
             item.Status = Se.Language.General.OcrDotDotDot;
-            if (Se.Settings.Tools.BatchConvert.OcrEngine.Equals("nOcr", StringComparison.OrdinalIgnoreCase))
+            var ocrEngineName = Se.Settings.Tools.BatchConvert.OcrEngine;
+
+            if (ocrEngineName.Equals("nOcr", StringComparison.OrdinalIgnoreCase))
             {
                 RunNOcr(imageSubtitle, item, cancellationToken);
             }
-            else if (Se.Settings.Tools.BatchConvert.OcrEngine.Equals("PaddleOCR", StringComparison.OrdinalIgnoreCase))
+            else if (ocrEngineName.Equals("Binary image compare", StringComparison.OrdinalIgnoreCase))
             {
-                await RunPaddleOcr(imageSubtitle, item, cancellationToken);
+                await RunBinaryImageCompareOcr(imageSubtitle, item, cancellationToken);
+            }
+            else if (ocrEngineName.Equals("Tesseract", StringComparison.OrdinalIgnoreCase))
+            {
+                await RunOcrTesseract(imageSubtitle, item, cancellationToken);
+            }
+            else if (ocrEngineName.Equals("Paddle OCR Standalone", StringComparison.OrdinalIgnoreCase) ||
+                     ocrEngineName.Equals("PaddleOCR", StringComparison.OrdinalIgnoreCase))
+            {
+                await RunPaddleOcr(imageSubtitle, item, OcrEngineType.PaddleOcrStandalone, cancellationToken);
+            }
+            else if (ocrEngineName.Equals("Paddle OCR Python", StringComparison.OrdinalIgnoreCase))
+            {
+                await RunPaddleOcr(imageSubtitle, item, OcrEngineType.PaddleOcrPython, cancellationToken);
+            }
+            else if (ocrEngineName.Equals("Ollama", StringComparison.OrdinalIgnoreCase))
+            {
+                await RunOllamaOcr(imageSubtitle, item, cancellationToken);
+            }
+            else if (ocrEngineName.Equals("Google Vision", StringComparison.OrdinalIgnoreCase))
+            {
+                await RunGoogleVisionOcr(imageSubtitle, item, cancellationToken);
+            }
+            else if (ocrEngineName.Equals("Mistral OCR", StringComparison.OrdinalIgnoreCase))
+            {
+                await RunMistralOcr(imageSubtitle, item, cancellationToken);
+            }
+            else if (ocrEngineName.Equals("Google Lens Sharp", StringComparison.OrdinalIgnoreCase))
+            {
+                await RunGoogleLensOcrSharp(imageSubtitle, item, cancellationToken);
+            }
+            else if (ocrEngineName.Equals("Google Lens Standalone", StringComparison.OrdinalIgnoreCase))
+            {
+                await RunGoogleLensOcr(imageSubtitle, item, cancellationToken);
             }
             else
             {
+                // Fallback to Tesseract for any unrecognised engine name
                 await RunOcrTesseract(imageSubtitle, item, cancellationToken);
             }
         }
@@ -417,8 +452,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
                 var msub = sub[index];
                 DvbSubPes? pes = null;
                 var data = msub.GetData(track);
-                if (data != null && data.Length > 9 && data[0] == 15 && data[1] >= SubtitleSegment.PageCompositionSegment &&
-                    data[1] <= SubtitleSegment.DisplayDefinitionSegment) // sync byte + segment id
+                if (data != null && data.Length > 9 && data[0] == 15 && data[1] >= SubtitleSegment.PageCompositionSegment && data[1] <= SubtitleSegment.DisplayDefinitionSegment) // sync byte + segment id
                 {
                     var buffer = new byte[data.Length + 3];
                     Buffer.BlockCopy(data, 0, buffer, 2, data.Length);
@@ -544,7 +578,6 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
                     {
                         subtitles[subtitles.Count - 1].EndTime = (long)((p.Start - 1) * 90.0);
                     }
-
                     clusterStream.Position = 0;
                     var list = BluRaySupParser.ParseBluRaySup(clusterStream, log, true, lastPalettes, lastBitmapObjects);
                     foreach (var sup in list)
@@ -559,7 +592,6 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
                             subtitles[subtitles.Count - 2].EndTime = subtitles[subtitles.Count - 1].StartTime - 1;
                         }
                     }
-
                     clusterStream = new MemoryStream();
                 }
             }
@@ -596,7 +628,6 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             int length = BluRaySupParser.BigEndianInt16(buffer, position + 1) + 3;
             position += length;
         }
-
         return false;
     }
 
@@ -736,7 +767,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
     private readonly Lock _paddleLock = new Lock();
 
-    private async Task RunPaddleOcr(IOcrSubtitle imageSubtitles, BatchConvertItem item, CancellationToken cancellationToken)
+    private async Task RunPaddleOcr(IOcrSubtitle imageSubtitles, BatchConvertItem item, OcrEngineType engineType, CancellationToken cancellationToken)
     {
         var numberOfImages = imageSubtitles.Count;
         var ocrEngine = new PaddleOcr();
@@ -783,13 +814,283 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         });
 
         item.Status = Se.Language.General.OcrDotDotDot;
-        await ocrEngine.OcrBatch(OcrEngineType.PaddleOcrStandalone, batchImages, language, mode, ocrProgress, cancellationToken);
+        await ocrEngine.OcrBatch(engineType, batchImages, language, mode, ocrProgress, cancellationToken);
         var checkCount = 0;
         while (ocrCount < numberOfImages && checkCount < 100)
         {
             await Task.Delay(100);
             checkCount++;
         }
+    }
+
+    private async Task RunOllamaOcr(IOcrSubtitle imageSubtitles, BatchConvertItem item, CancellationToken cancellationToken)
+    {
+        var ollamaOcr = new OllamaOcr();
+        var ollamaUrl = Se.Settings.Tools.BatchConvert.OllamaUrl;
+        var ollamaModel = Se.Settings.Tools.BatchConvert.OllamaModel;
+        var ollamaLanguage = Se.Settings.Tools.BatchConvert.OllamaLanguage;
+        item.Subtitle = new Subtitle();
+
+        for (var i = 0; i < imageSubtitles.Count; i++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                item.Status = Se.Language.General.Cancelled;
+                return;
+            }
+
+            var pct = (i + 1) * 100 / imageSubtitles.Count;
+            item.Status = string.Format(Se.Language.General.OcrPercentX, pct);
+
+            var bitmap = imageSubtitles.GetBitmap(i);
+            var text = await ollamaOcr.Ocr(bitmap, ollamaUrl, ollamaModel, ollamaLanguage, cancellationToken);
+            var p = new Paragraph(text, imageSubtitles.GetStartTime(i).TotalMilliseconds, imageSubtitles.GetEndTime(i).TotalMilliseconds);
+            item.Subtitle.Paragraphs.Add(p);
+        }
+    }
+
+    private async Task RunGoogleVisionOcr(IOcrSubtitle imageSubtitles, BatchConvertItem item, CancellationToken cancellationToken)
+    {
+        var engine = new GoogleVisionOcr();
+        var apiKey = Se.Settings.Tools.BatchConvert.GoogleVisionApiKey;
+        var language = Se.Settings.Tools.BatchConvert.GoogleVisionLanguage;
+        item.Subtitle = new Subtitle();
+
+        for (var i = 0; i < imageSubtitles.Count; i++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                item.Status = Se.Language.General.Cancelled;
+                return;
+            }
+
+            var pct = (i + 1) * 100 / imageSubtitles.Count;
+            item.Status = string.Format(Se.Language.General.OcrPercentX, pct);
+
+            var bitmap = imageSubtitles.GetBitmap(i);
+            var text = await engine.Ocr(bitmap, apiKey, language, cancellationToken);
+            var p = new Paragraph(text, imageSubtitles.GetStartTime(i).TotalMilliseconds, imageSubtitles.GetEndTime(i).TotalMilliseconds);
+            item.Subtitle.Paragraphs.Add(p);
+        }
+    }
+
+    private async Task RunMistralOcr(IOcrSubtitle imageSubtitles, BatchConvertItem item, CancellationToken cancellationToken)
+    {
+        var apiKey = Se.Settings.Tools.BatchConvert.MistralApiKey;
+        var mistralOcr = new MistralOcr(apiKey);
+        var language = Se.Settings.Tools.BatchConvert.OllamaLanguage; // Mistral reuses the Ollama language field
+        item.Subtitle = new Subtitle();
+
+        for (var i = 0; i < imageSubtitles.Count; i++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                item.Status = Se.Language.General.Cancelled;
+                return;
+            }
+
+            var pct = (i + 1) * 100 / imageSubtitles.Count;
+            item.Status = string.Format(Se.Language.General.OcrPercentX, pct);
+
+            var bitmap = imageSubtitles.GetBitmap(i);
+            var text = await mistralOcr.Ocr(bitmap, language, cancellationToken);
+            var p = new Paragraph(text, imageSubtitles.GetStartTime(i).TotalMilliseconds, imageSubtitles.GetEndTime(i).TotalMilliseconds);
+            item.Subtitle.Paragraphs.Add(p);
+        }
+    }
+
+    private readonly Lock _googleLensLock = new Lock();
+
+    private async Task RunGoogleLensOcr(IOcrSubtitle imageSubtitles, BatchConvertItem item, CancellationToken cancellationToken)
+    {
+        var numberOfImages = imageSubtitles.Count;
+        var ocrEngine = new GoogleLensOcr();
+        var language = string.IsNullOrEmpty(Se.Settings.Tools.BatchConvert.GoogleLensLanguage) ? "en" : Se.Settings.Tools.BatchConvert.GoogleLensLanguage;
+        var ocrCount = 0;
+        item.Subtitle = new Subtitle();
+
+        var batchImages = new List<PaddleOcrBatchInput>(numberOfImages);
+        item.Status = "Preparing OCR...";
+        for (var i = 0; i < imageSubtitles.Count; i++)
+        {
+            batchImages.Add(new PaddleOcrBatchInput
+            {
+                Bitmap = imageSubtitles.GetBitmap(i),
+                Index = i,
+                Text = $"{i + 1} / {numberOfImages}: {imageSubtitles.GetStartTime(i)} - {imageSubtitles.GetEndTime(i)}"
+            });
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+        }
+
+        var ocrProgress = new Progress<PaddleOcrBatchProgress>(p =>
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            lock (_googleLensLock)
+            {
+                var number = p.Index;
+                var percentage = (int)Math.Round(number * 100.0, MidpointRounding.AwayFromZero);
+                item.Status = string.Format(Se.Language.General.OcrPercentX, percentage);
+
+                var paragraph = new Paragraph(p.Text, imageSubtitles.GetStartTime(number).TotalMilliseconds, imageSubtitles.GetEndTime(number).TotalMilliseconds);
+                item.Subtitle.Paragraphs.Add(paragraph);
+
+                ocrCount++;
+            }
+        });
+
+        item.Status = Se.Language.General.OcrDotDotDot;
+        ocrEngine.OcrBatch(batchImages, language, ocrProgress, cancellationToken);
+        var checkCount = 0;
+        while (ocrCount < numberOfImages && checkCount < 600)
+        {
+            await Task.Delay(100);
+            checkCount++;
+        }
+    }
+
+    private async Task RunGoogleLensOcrSharp(IOcrSubtitle imageSubtitles, BatchConvertItem item, CancellationToken cancellationToken)
+    {
+        var numberOfImages = imageSubtitles.Count;
+        var ocrEngine = new GoogleLensOcrSharp(new Lens());
+        var language = string.IsNullOrEmpty(Se.Settings.Tools.BatchConvert.GoogleLensLanguage) ? "en" : Se.Settings.Tools.BatchConvert.GoogleLensLanguage;
+        var ocrCount = 0;
+        item.Subtitle = new Subtitle();
+
+        var batchImages = new List<PaddleOcrBatchInput>(numberOfImages);
+        item.Status = "Preparing OCR...";
+        for (var i = 0; i < imageSubtitles.Count; i++)
+        {
+            batchImages.Add(new PaddleOcrBatchInput
+            {
+                Bitmap = imageSubtitles.GetBitmap(i),
+                Index = i,
+                Text = $"{i + 1} / {numberOfImages}: {imageSubtitles.GetStartTime(i)} - {imageSubtitles.GetEndTime(i)}"
+            });
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+        }
+
+        var ocrProgress = new Progress<PaddleOcrBatchProgress>(p =>
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            lock (_googleLensLock)
+            {
+                var number = p.Index;
+                var percentage = (int)Math.Round(number * 100.0, MidpointRounding.AwayFromZero);
+                item.Status = string.Format(Se.Language.General.OcrPercentX, percentage);
+
+                var paragraph = new Paragraph(p.Text, imageSubtitles.GetStartTime(number).TotalMilliseconds, imageSubtitles.GetEndTime(number).TotalMilliseconds);
+                item.Subtitle.Paragraphs.Add(paragraph);
+
+                ocrCount++;
+            }
+        });
+
+        item.Status = Se.Language.General.OcrDotDotDot;
+        await ocrEngine.OcrBatch(batchImages, language, ocrProgress, cancellationToken);
+        var checkCount = 0;
+        while (ocrCount < numberOfImages && checkCount < 600)
+        {
+            await Task.Delay(100);
+            checkCount++;
+        }
+    }
+
+    private async Task RunBinaryImageCompareOcr(IOcrSubtitle imageSubtitles, BatchConvertItem item, CancellationToken cancellationToken)
+    {
+        var dbName = Se.Settings.Tools.BatchConvert.ImageCompareDatabase;
+        if (string.IsNullOrEmpty(dbName))
+        {
+            // Fall back to the first available database
+            var databases = BinaryOcrDb.GetDatabases();
+            dbName = databases.FirstOrDefault() ?? string.Empty;
+        }
+
+        if (string.IsNullOrEmpty(dbName))
+        {
+            item.Status = string.Format(Se.Language.General.ErrorX, "No Binary OCR database found");
+            return;
+        }
+
+        var fileName = Path.Combine(Se.OcrFolder, dbName + BinaryOcrDb.Extension);
+        if (!File.Exists(fileName))
+        {
+            item.Status = string.Format(Se.Language.General.ErrorX, $"Binary OCR database not found: {fileName}");
+            return;
+        }
+
+        var db = new BinaryOcrDb(fileName, true);
+        var matcher = new BinaryOcrMatcher();
+        matcher.IsLatinDb = dbName.Contains("Latin", StringComparison.OrdinalIgnoreCase);
+
+        item.Subtitle = new Subtitle();
+
+        for (var i = 0; i < imageSubtitles.Count; i++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                item.Status = Se.Language.General.Cancelled;
+                return;
+            }
+
+            var pct = (i + 1) * 100 / imageSubtitles.Count;
+            item.Status = string.Format(Se.Language.General.OcrPercentX, pct);
+
+            var bitmap = imageSubtitles.GetBitmap(i);
+            var parentBitmap = new NikseBitmap2(bitmap);
+            parentBitmap.MakeTwoColor(200);
+            parentBitmap.CropTop(0, new SKColor(0, 0, 0, 0));
+            var letters = NikseBitmapImageSplitter2.SplitBitmapToLettersNew(parentBitmap, 12, false, true, 20, true);
+
+            var index = 0;
+            var matches = new List<BinaryOcrMatcher.CompareMatch>();
+            while (index < letters.Count)
+            {
+                var splitterItem = letters[index];
+                if (splitterItem.NikseBitmap == null)
+                {
+                    if (splitterItem.SpecialCharacter != null)
+                    {
+                        matches.Add(new BinaryOcrMatcher.CompareMatch(splitterItem.SpecialCharacter, false, 0, nameof(splitterItem.SpecialCharacter)));
+                    }
+                }
+                else
+                {
+                    var match = matcher.GetCompareMatch(splitterItem, out _, letters, index, db);
+                    if (match == null)
+                    {
+                        matches.Add(new BinaryOcrMatcher.CompareMatch("*", false, 0, null));
+                    }
+                    else
+                    {
+                        matches.Add(match);
+                    }
+                }
+
+                index++;
+            }
+
+            var text = string.Concat(matches.Select(m => m.Text)).Trim();
+            var p = new Paragraph(text, imageSubtitles.GetStartTime(i).TotalMilliseconds, imageSubtitles.GetEndTime(i).TotalMilliseconds);
+            item.Subtitle.Paragraphs.Add(p);
+        }
+
+        await Task.CompletedTask;
     }
 
     private void WriteToImageBasedFormat(BatchConvertItem item, IOcrSubtitle? imageSubtitle, CancellationToken cancellationToken)
@@ -834,7 +1135,6 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             {
                 param.OverridePosition = position;
             }
-
             imageParameters.Add(param);
 
             if (cancellationToken.IsCancellationRequested)
@@ -907,7 +1207,6 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             exportHandler.CreateParagraph(imageParameters[i]);
             exportHandler.WriteParagraph(imageParameters[i]);
         }
-
         exportHandler.WriteFooter();
         item.Status = Se.Language.General.Converted;
     }
@@ -956,7 +1255,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             }
 
             var path = MakeOutputFileName(item, f.Extension);
-            using var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write);
+            var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write);
             format.Save(path, fileStream, item.Subtitle, true);
             item.Status = Se.Language.General.Converted;
         }
@@ -1401,8 +1700,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         }
 
         var subtitles = new ObservableCollection<SubtitleLineViewModel>(subtitle.Paragraphs.Select(p => new SubtitleLineViewModel(p, subtitle.OriginalFormat)));
-        var fixedCount = DurationsBridgeGaps2.BridgeGaps(subtitles, minMsBetweenLines, _config.BridgeGaps.PercentForLeft, maxMs, fixedIndexes, dic,
-            Configuration.Settings.General.UseTimeFormatHHMMSSFF);
+        var fixedCount = DurationsBridgeGaps2.BridgeGaps(subtitles, minMsBetweenLines, _config.BridgeGaps.PercentForLeft, maxMs, fixedIndexes, dic, Configuration.Settings.General.UseTimeFormatHHMMSSFF);
 
         for (var i = 0; i < subtitles.Count && i < subtitle.Paragraphs.Count; i++)
         {
@@ -1513,16 +1811,14 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
     private Subtitle RemoveLineBreaks(Subtitle subtitle)
     {
-        if (!_config.RemoveLineBreaks.IsActive)
+        if (!_config.OffsetTimeCodes.IsActive)
         {
             return subtitle;
         }
 
         foreach (var paragraph in subtitle.Paragraphs)
         {
-            paragraph.Text = _config.RemoveLineBreaks.OnlyShortLines
-                ? Nikse.SubtitleEdit.Core.Forms.FixCommonErrors.Helper.FixShortLines(paragraph.Text, Language)
-                : Utilities.UnbreakLine(paragraph.Text);
+            paragraph.Text = Utilities.UnbreakLine(paragraph.Text);
         }
 
         return subtitle;
@@ -1583,7 +1879,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         }
         else if (c.AdjustmentType == AdjustDurationType.Fixed)
         {
-            subtitle.SetFixedDuration(null, c.FixedMilliseconds);
+            subtitle.SetFixedDuration(null, c.FixedMilliseconds * 1000.0);
         }
         else if (c.AdjustmentType == AdjustDurationType.Seconds)
         {
@@ -1659,13 +1955,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
         var removeTextForHiLib = new RemoveTextForHI(settings);
         removeTextForHiLib.Warnings = [];
-
-        var interjections = Se.Settings.Tools.RemoveTextForHi.Interjections
-            .FirstOrDefault(p => p.LanguageCode == (language ?? "en"));
-        var list = interjections?.Interjections ?? new List<string>();
-        var skipList = interjections?.SkipStartList ?? new List<string>();
-
-        removeTextForHiLib.ReloadInterjection(list, skipList);
+        removeTextForHiLib.ReloadInterjection(language);
 
         for (var index = 0; index < subtitle.Paragraphs.Count; index++)
         {
@@ -1677,7 +1967,6 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             }
         }
 
-        subtitle.RemoveEmptyLines();
         return subtitle;
     }
 
@@ -1722,68 +2011,63 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
         var reBreak = _config.MergeLinesWithSameTimeCodes.AutoBreak;
         var makeDialog = _config.MergeLinesWithSameTimeCodes.MergeDialog;
-        var removed = new HashSet<int>();
+        var singleMergeSubtitles = new List<Paragraph>();
+        var mergedText = string.Empty;
 
         for (var i = 1; i < subtitle.Paragraphs.Count; i++)
         {
-            if (removed.Contains(i))
-            {
-                continue;
-            }
-
             var p = subtitle.Paragraphs[i - 1];
-            var next = subtitle.Paragraphs[i];
 
-            if (!MergeSameTimeCodesViewModel.QualifiesForMerge(
-                    new SubtitleLineViewModel(p, subtitle.OriginalFormat),
-                    new SubtitleLineViewModel(next, subtitle.OriginalFormat),
+            var next = subtitle.Paragraphs[i];
+            if (MergeSameTimeCodesViewModel.QualifiesForMerge(new SubtitleLineViewModel(p, subtitle.OriginalFormat), new SubtitleLineViewModel(next, subtitle.OriginalFormat),
                     _config.MergeLinesWithSameTimeCodes.MaxMillisecondsDifference))
             {
-                continue;
-            }
+                if (!singleMergeSubtitles.Contains(p))
+                {
+                    singleMergeSubtitles.Add(p);
+                }
 
-            var nextText = next.Text
-                .Replace("{\\an1}", string.Empty)
-                .Replace("{\\an2}", string.Empty)
-                .Replace("{\\an3}", string.Empty)
-                .Replace("{\\an4}", string.Empty)
-                .Replace("{\\an5}", string.Empty)
-                .Replace("{\\an6}", string.Empty)
-                .Replace("{\\an7}", string.Empty)
-                .Replace("{\\an8}", string.Empty)
-                .Replace("{\\an9}", string.Empty);
+                if (!singleMergeSubtitles.Contains(next))
+                {
+                    singleMergeSubtitles.Add(next);
+                }
 
-            string mergedText;
-            if (p.Text.StartsWith("<i>", StringComparison.Ordinal) && p.Text.EndsWith("</i>", StringComparison.Ordinal) &&
-                nextText.StartsWith("<i>", StringComparison.Ordinal) && nextText.EndsWith("</i>", StringComparison.Ordinal))
-            {
-                mergedText = MergeSameTimeCodesViewModel.GetMergedLines(
-                    p.Text.Remove(p.Text.Length - 4),
-                    nextText.Remove(0, 3),
-                    makeDialog);
+                var nextText = next.Text
+                    .Replace("{\\an1}", string.Empty)
+                    .Replace("{\\an2}", string.Empty)
+                    .Replace("{\\an3}", string.Empty)
+                    .Replace("{\\an4}", string.Empty)
+                    .Replace("{\\an5}", string.Empty)
+                    .Replace("{\\an6}", string.Empty)
+                    .Replace("{\\an7}", string.Empty)
+                    .Replace("{\\an8}", string.Empty)
+                    .Replace("{\\an9}", string.Empty);
+
+                mergedText = p.Text;
+                if (mergedText.StartsWith("<i>", StringComparison.Ordinal) && mergedText.EndsWith("</i>", StringComparison.Ordinal) &&
+                    nextText.StartsWith("<i>", StringComparison.Ordinal) && nextText.EndsWith("</i>", StringComparison.Ordinal))
+                {
+                    mergedText = MergeSameTimeCodesViewModel.GetMergedLines(mergedText.Remove(mergedText.Length - 4), nextText.Remove(0, 3), makeDialog);
+                }
+                else
+                {
+                    mergedText = MergeSameTimeCodesViewModel.GetMergedLines(mergedText, nextText, makeDialog);
+                }
+
+                if (reBreak)
+                {
+                    mergedText = Utilities.AutoBreakLine(mergedText, language);
+                }
             }
             else
             {
-                mergedText = MergeSameTimeCodesViewModel.GetMergedLines(p.Text, nextText, makeDialog);
+                if (singleMergeSubtitles.Count > 0)
+                {
+                    singleMergeSubtitles.Clear();
+                    mergedText = string.Empty;
+                }
             }
-
-            if (reBreak)
-            {
-                mergedText = Utilities.AutoBreakLine(mergedText, language);
-            }
-
-            p.Text = mergedText;
-            p.EndTime.TotalMilliseconds = next.EndTime.TotalMilliseconds;
-            removed.Add(i);
         }
-
-        // rebuild subtitle without removed paragraphs
-        var kept = subtitle.Paragraphs
-            .Where((_, idx) => !removed.Contains(idx))
-            .ToList();
-        subtitle.Paragraphs.Clear();
-        subtitle.Paragraphs.AddRange(kept);
-        subtitle.Renumber();
 
         return subtitle;
     }
@@ -1795,20 +2079,23 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             return subtitle;
         }
 
+        var mergedIndexes = new List<int>();
         var removed = new HashSet<int>();
         var maxMsBetween = _config.MergeLinesWithSameTexts.MaxMillisecondsBetweenLines;
         var fixIncrementing = _config.MergeLinesWithSameTexts.IncludeIncrementingLines;
-
-        for (var i = 0; i < subtitle.Paragraphs.Count - 1; i++)
+        var numberOfMerges = 0;
+        Paragraph? p = null;
+        var lineNumbers = new List<int>();
+        for (var i = 1; i < subtitle.Paragraphs.Count; i++)
         {
-            if (removed.Contains(i))
+            if (removed.Contains(i - 1))
             {
                 continue;
             }
 
-            var p = subtitle.Paragraphs[i];
+            p = subtitle.Paragraphs[i - 1];
 
-            for (var j = i + 1; j < subtitle.Paragraphs.Count; j++)
+            for (var j = i; j < subtitle.Paragraphs.Count; j++)
             {
                 if (removed.Contains(j))
                 {
@@ -1817,21 +2104,37 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
                 var next = subtitle.Paragraphs[j];
                 var incrementText = string.Empty;
-
-                if (MergeLinesSameTextUtils.QualifiesForMerge(p, next, maxMsBetween) ||
-                    (fixIncrementing && MergeLinesSameTextUtils.QualifiesForMergeIncrement(p, next, maxMsBetween, out incrementText)))
+                if ((MergeLinesSameTextUtils.QualifiesForMerge(p, next, maxMsBetween) ||
+                     fixIncrementing && MergeLinesSameTextUtils.QualifiesForMergeIncrement(p, next, maxMsBetween, out incrementText)))
                 {
+                    p.Text = next.Text;
                     p.EndTime.TotalMilliseconds = next.EndTime.TotalMilliseconds;
                     if (!string.IsNullOrEmpty(incrementText))
                     {
                         p.Text = incrementText;
                     }
+
+                    if (lineNumbers.Count > 0)
+                    {
+                        lineNumbers.Add(next.Number);
+                    }
                     else
                     {
-                        p.Text = next.Text;
+                        lineNumbers.Add(p.Number);
+                        lineNumbers.Add(next.Number);
                     }
 
                     removed.Add(j);
+                    numberOfMerges++;
+                    if (!mergedIndexes.Contains(j))
+                    {
+                        mergedIndexes.Add(j);
+                    }
+
+                    if (!mergedIndexes.Contains(i - 1))
+                    {
+                        mergedIndexes.Add(i - 1);
+                    }
                 }
                 else
                 {
