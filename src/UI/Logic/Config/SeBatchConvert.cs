@@ -1,4 +1,4 @@
-﻿using Nikse.SubtitleEdit.Core.AutoTranslate;
+using Nikse.SubtitleEdit.Core.AutoTranslate;
 
 namespace Nikse.SubtitleEdit.Logic.Config;
 
@@ -12,6 +12,16 @@ public class SeBatchConvert
     public string OcrEngine { get; set; }
     public string TesseractLanguage { get; set; }
     public string PaddleLanguage { get; set; }
+
+    // New OCR engine settings
+    public string OllamaLanguage { get; set; }
+    public string OllamaModel { get; set; }
+    public string OllamaUrl { get; set; }
+    public string GoogleVisionApiKey { get; set; }
+    public string GoogleVisionLanguage { get; set; }
+    public string MistralApiKey { get; set; }
+    public string GoogleLensLanguage { get; set; }
+    public string ImageCompareDatabase { get; set; }
 
     public bool FormattingRemoveAll { get; set; }
     public bool FormattingRemoveItalic { get; set; }
@@ -59,6 +69,14 @@ public class SeBatchConvert
         OcrEngine = "Tesseract";
         TesseractLanguage = "eng";
         PaddleLanguage = "en";
+        OllamaLanguage = "English";
+        OllamaModel = "llama3.2-vision";
+        OllamaUrl = "http://localhost:11434/api/chat/";
+        GoogleVisionApiKey = string.Empty;
+        GoogleVisionLanguage = "en";
+        MistralApiKey = string.Empty;
+        GoogleLensLanguage = "en";
+        ImageCompareDatabase = string.Empty;
         OffsetTimeCodesForward = true;
         AdjustVia = "Seconds"; 
         AdjustDurationSeconds = 0.1;
