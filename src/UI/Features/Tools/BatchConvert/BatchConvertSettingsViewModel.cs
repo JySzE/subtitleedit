@@ -3,6 +3,7 @@ using Avalonia.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Nikse.SubtitleEdit.Core.Common;
+using Nikse.SubtitleEdit.Core.VobSub.Ocr.Service;
 using Nikse.SubtitleEdit.Features.Ocr;
 using Nikse.SubtitleEdit.Features.Ocr.Engines;
 using Nikse.SubtitleEdit.Features.Shared;
